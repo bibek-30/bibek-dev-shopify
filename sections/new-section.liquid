@@ -1,0 +1,74 @@
+<div>
+{% for block in section.blocks %}
+  {% if block.type == "nav" %}
+    <a href="#{{ block.settings.id }}" class="{% if forloop.first %}active{% endif %}" >{{ block.settings.nav_title }}</a>
+  {% endif %}
+
+{% endfor %}
+
+  {% for block in section.blocks %}
+  {% if block.type == "content" %}
+    <div class="{{ block.settings.id }} {% if forloop.first %}active{% endif %}">{{ block.settings.nav_title }}</div>
+  {% endif %}
+{% endfor %}
+</div>
+
+<style>
+  .active {
+    display:block !important;
+  }
+</style>
+
+
+{% schema %}
+{
+  "name": "Section name",
+  "settings": [
+    {
+      "type": "text",
+      "id": "some_class",
+      "label": "CSS Class"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "nav",
+      "name": "Navigation Link",
+      "settings": [
+        {
+          "type": "text",
+          "id": "nav_title",
+          "label": "Nav Title"
+        },
+        {
+          "type": "text",
+          "id": "id",
+          "label": "Anchor ID"
+        }
+      ]
+    },
+    {
+      "type": "content",
+      "name": "Content Block",
+      "settings": [
+        {
+          "type": "text",
+          "id": "nav_title",
+          "label": "Nav Title"
+        },
+        {
+          "type": "text",
+          "id": "id",
+          "label": "Anchor ID"
+        }
+      ]
+    }
+  ],
+  "max_blocks": 10,
+  "presets": [
+    {
+      "name": "Custom section"
+    }
+  ]
+}
+{% endschema %}

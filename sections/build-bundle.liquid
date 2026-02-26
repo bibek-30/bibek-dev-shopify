@@ -1,0 +1,329 @@
+{{ 'build-bundle.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+    background: {{ section.settings.background_color | default: '#fff' }};
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+  <div class="section-{{ section.id }}-padding gradient bundle-wrapper">
+    <div class="page-width">
+      {% if section.settings.title != blank %}
+        <h2 class="heading center">{{ section.settings.title }}</h2>
+      {% endif %}
+      <div class="bundle-container">
+        <div class="product-list">
+          {% for block in section.blocks %}
+            {% if block.type == "bundle" %}
+              {% assign product = block.settings.product %}
+            <div
+              class="product-card"
+              data-product-id="{{ product.id }}"
+              data-variant-id="{{ product.first_available_variant.id }}"
+              data-price="{{ product.price | times: 0.01 }}"
+              data-title="{% if block.settings.title != blank %}{{ block.settings.title }}{% else %}{{ product.title }}{% endif %}"
+              data-currency="{{ shop.money_format }}"
+              {% for selling_plans in product.selling_plan_groups.first.selling_plans %}
+                {% if selling_plans.name contains '4 weeks' %}
+                  data-selling-plan-four-weekly="{{ selling_plans.id }}"
+                {% elsif selling_plans.name contains '8 weeks' %}
+                  data-selling-plan-weekly="{{ selling_plans.id }}"
+                {% endif %}
+              {% endfor %}
+            >
+              <div class="product-image-container">
+                <svg role="img" aria-label="Sparkle Icon" width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" class="sparkle" style="top: {{ block.settings.top }}%; left: {{ block.settings.left }}%;">
+                  <path d="M80 40C45.7139 43.1559 41.4122 45.7145 27.7955 80C35.1003 45.713 34.2861 43.1559 0 40C34.2861 36.8441 38.5878 34.2855 52.2045 0C44.8997 34.2855 45.7139 36.8441 80 40Z" fill="white"></path>
+                </svg>
+                <img class="bundle-product_background" loading="lazy" src="{% if block.settings.background != blank %}{{ block.settings.background | image_url }}{% else %}https://cdn.shopify.com/s/files/1/0589/0965/5171/files/Collection-shape-sleep_1.png?v=1737570401{% endif %}" alt="{{ product.title }}" width="" height="">
+                <img
+                  height=""
+                  width=""
+                  loading="lazy"
+                    src="{% if block.settings.image != blank %}{{ block.settings.image | image_url: width: 1000, height:1000 }}{% else %}{{ product.featured_image | image_url: width: 1000, height:1000  }}{% endif %}"
+                  alt="{{ product.title }}"
+                  class="product-image bundle-product_image"
+                >
+                {% if block.settings.badge != blank %}
+                  <img class="c-badge" height="" width="" loading="lazy" src="{{ block.settings.badge | image_url }}" alt="badge"/>
+                {% endif %}
+              </div>
+              <div class="product-details">
+                <h3 class="product-title">{% if block.settings.title != blank %}{{ block.settings.title }}{% else %}{{ product.title }}{% endif %}</h3>
+                <p>{% if block.settings.desc != blank %}{{ block.settings.desc }}{% else %}{{ product.description | truncatewords: 3 }}{% endif %}</p>
+                <div class="product-actions">
+                  <button class="add-to-bundle" data-product-id="{{ product.id }}">Add</button>
+                  <button class="remove-from-bundle hidden" data-product-id="{{ product.id }}">Remove</button>
+                </div>
+                <a class="view-details" href="{{ product.url }}">View Details</a>
+              </div>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+
+        <div class="bundle-slots">
+          <div class="bundle-slots_wrapper">
+
+            <div class="bundle_count center">
+              <h3 class="your_bundle">
+                  <svg class="icon-chevron-down" role="img" aria-label="Chevron Down Icon" width="14" height="8" viewBox="0 0 14 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M13.1416 0.608319C12.775 0.241644 12.225 0.241644 11.8583 0.608319L6.99999 5.46665L2.14167 0.608319C1.77499 0.241644 1.22499 0.241644 0.858341 0.608319C0.491688 0.974993 0.491667 1.52499 0.858341 1.89165L6.35834 7.39165C6.54167 7.57498 6.81667 7.66665 7.00001 7.66665C7.18336 7.66665 7.45834 7.57498 7.64169 7.39165L13.1417 1.89165C13.5084 1.52497 13.5084 0.974971 13.1417 0.608319H13.1416Z" fill="black"></path>
+                  </svg>
+                <span>your bundle<span>(<span class="count-total">0</span>/3)</span></span>
+              </h3>
+            </div>
+            
+            <div class="selected_bundle">
+              <div class="slot" data-slot="1">
+                <div class="slot-content">
+                  <div class="empty-slot">
+                  </div>
+                </div>
+              </div>
+  
+              <div class="slot" data-slot="2">
+                <div class="slot-content">
+                  <div class="empty-slot">
+                  </div>
+                </div>
+              </div>
+  
+              <div class="slot" data-slot="3">
+                <div class="slot-content">
+                  <div class="empty-slot">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="purchase-options">
+              <div class="radio-group">
+                <label for="one-time">
+                   <div class="purchase-option-label">
+                  <span>
+                  <input type="radio" id="one-time" name="purchase-type" value="one-time" checked>
+                  One-time purchase
+                    </span>
+                  <span class="price-label"></span>
+                   </div>
+                </label>
+
+                <label for="subscription" >
+                  <div class="purchase-option-label">
+                    <span>
+                  <input type="radio" id="subscription" name="purchase-type" value="subscription">
+                  Subscribe & save
+                      </span>
+                   <span class="price-label"></span>
+                  </div>
+                  <div class="subscription-options">
+  
+                    <div class="subscription-frequency">
+                      <select name="delivery-frequency" disabled class="frequency-select">
+                        <option value="4-weekly" selected>Delivery every 4 weeks*</option>
+                        <option value="weekly">Delivery every 8 weeks*</option>
+                      </select>
+                    </div>
+                  </div>
+                  <ul class="subscription_points">
+                    {% for block in section.blocks %}
+                      {% if block.type == "subscription-points" %}
+                        <li>
+                          <svg class="icon-check" role="img" aria-label="Check Icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M16.8309 7.0834L8.74999 15.1643L4.00244 10.4167L5.41665 9.00252L8.74999 12.3359L15.4167 5.66919L16.8309 7.0834Z" fill="black"></path>
+                          </svg>
+                          <span>{{ block.settings.text }}</span>
+                        </li>
+                      {% endif %}
+                    {% endfor %}
+                  </ul>
+                </label>
+              </div>
+
+              <div class="notes">
+              <small class="product__fda-disclaimer">
+                * These statements have not been evaluated by the Food and Drug Administration. This product is not intended to diagnose, treat, cure or prevent any disease.
+              </small>
+              </div>
+                  
+              <button class="add-bundle-to-cart" disabled>Add To Bag</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+
+
+
+  {% assign my_array = "apple,banana,apple,orange"%}
+  {% assign new_array = my_array | split : ',' %}
+  {% assign rearranged_array = "" %}
+  {% for i in new_array %}
+    {% if rearranged_array contains i %}
+      {% else %}
+      {% assign rearranged_array = rearranged_array | append : i %}
+      {{ i }} -{{ forloop.index }}
+    {% endif %}
+  {% endfor %}
+
+  {{ rearranged_array }}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  <script src="{{ 'build-bundle.js' | asset_url }}" defer="defer"></script>
+{% schema %}
+{
+  "name": "Build Bundle",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Title"
+    },
+    {
+      "type": "product_list",
+      "id": "product_list_value",
+      "label": "Bundle Product List"
+    },
+     {
+    "type": "color",
+    "id": "background_color",
+    "label": "Background Color",
+    "default": "#DFC8E7"
+  },
+     {
+    "type": "header",
+    "content": "t:sections.all.padding.section_padding_heading"
+  },
+  {
+    "type": "range",
+    "id": "padding_top",
+    "min": 0,
+    "max": 100,
+    "step": 4,
+    "unit": "px",
+    "label": "t:sections.all.padding.padding_top",
+    "default": 36
+  },
+  {
+    "type": "range",
+    "id": "padding_bottom",
+    "min": 0,
+    "max": 100,
+    "step": 4,
+    "unit": "px",
+    "label": "t:sections.all.padding.padding_bottom",
+    "default": 36
+  }
+  ],
+  "blocks": [
+    {
+      "type": "bundle",
+      "name":"Bundle",
+      "settings": [
+        {
+          "type": "product",
+          "id": "product",
+          "label": "Product"
+        },
+        {
+          "type": "text",
+          "id":"title",
+          "label":"Title",
+          "info": "If a slot is empty, the title of the product will be displayed."
+        },
+        {
+          "type": "text",
+          "id":"desc",
+          "label":"Description",
+          "info": "If a slot is empty, the desc of the product will be displayed."          
+        },
+        {
+          "type": "image_picker",
+          "id":"image",
+          "label": "Image",
+          "info": "If a slot is empty, the featured image of the product will be displayed."
+        },
+        {
+          "type": "image_picker",
+          "id":"background",
+          "label": "Background Image",
+          "info": "Required, it will be displayed as a background image of product."
+        },
+        {
+          "type": "image_picker",
+          "id":"badge",
+          "label": "Badge",
+          "info": "Product badge like best product and so on."
+        },
+        {
+          "type": "range",
+          "id": "left",
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "unit": "%",
+          "label": "Sparkle Position Left",
+          "default": 60
+        },
+        {
+          "type": "range",
+          "id": "top",
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "unit": "%",
+          "label": "Sparkle Position Top",
+          "default": 60
+        }
+      ]
+    },
+    {
+      "type": "subscription-points",
+      "name":"Subscription Points",
+      "settings": [
+        {
+          "type": "text",
+          "id": "text",
+          "label": "Subscription Point",
+          "default":"VIP access to exclusive drops"
+        }
+      ]
+    }
+  ],
+   "presets": [
+  {
+    "name": "Build Bundle"
+  }
+]
+}
+{% endschema %}
