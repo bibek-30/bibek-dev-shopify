@@ -63,7 +63,7 @@
 
 /* Step pill */
 .photo-modal__step {
-  display: inline-flex;
+  display: none;
   align-items: center;
   gap: 10px;
   font-size: 0.8125rem;
@@ -179,7 +179,6 @@
 .photo-modal__crop-box {
   position: absolute;
   pointer-events: none;
-  /* Two-layer border: bright inner + subtle outer shadow */
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.15),
     inset 0 0 0 1.5px rgba(255, 255, 255, 0.95);
@@ -194,7 +193,6 @@
 }
 
 .photo-modal__crop-box::before {
-  /* Two vertical thirds lines */
   top: 0; bottom: 0;
   left: 33.333%;
   width: 1px;
@@ -202,7 +200,6 @@
 }
 
 .photo-modal__crop-box::after {
-  /* Two horizontal thirds lines */
   left: 0; right: 0;
   top: 33.333%;
   height: 1px;
@@ -224,9 +221,7 @@
   border-radius: 1px;
 }
 
-/* Horizontal arm */
 .photo-modal__crop-corner::before { height: 2.5px; left: 0; right: 0; }
-/* Vertical arm */
 .photo-modal__crop-corner::after  { width: 2.5px;  top: 0; bottom: 0; }
 
 .photo-modal__crop-corner--tl { top: -1px; left: -1px; }
@@ -266,16 +261,26 @@
   border: 1px solid rgba(255,255,255,0.15);
 }
 
-/* ── Zoom bar ────────────────────────────────────────────────────────────── */
+/* ── Controls bar (Zoom + Frame padding) ─────────────────────────────────── */
+
+.photo-modal__controls-bar {
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
 
 .photo-modal__zoom-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 24px;
-  background: #1a1a1a;
-  border-top: 1px solid rgba(255,255,255,0.08);
-  flex-shrink: 0;
+  padding: 9px 24px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.photo-modal__zoom-bar:first-child {
+  border-top: none;
 }
 
 .photo-modal__zoom-bar label {
@@ -285,6 +290,7 @@
   text-transform: uppercase;
   color: #888;
   white-space: nowrap;
+  min-width: 42px;
 }
 
 .photo-modal__zoom-icon {
@@ -295,19 +301,26 @@
   user-select: none;
 }
 
-.photo-modal__zoom-slider {
+/* ── Shared range slider base ─────────────────────────────────────────────── */
+
+.photo-modal__range-slider {
   flex: 1;
   max-width: 220px;
   -webkit-appearance: none;
   appearance: none;
   height: 3px;
   border-radius: 2px;
-  background: linear-gradient(to right, #1a6b4a var(--zoom-pct, 0%), #444 var(--zoom-pct, 0%));
+  /* Green fill for zoom */
+  background: linear-gradient(
+    to right,
+    #1a6b4a var(--slider-pct, 0%),
+    #444 var(--slider-pct, 0%)
+  );
   outline: none;
   cursor: pointer;
 }
 
-.photo-modal__zoom-slider::-webkit-slider-thumb {
+.photo-modal__range-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 16px;
@@ -320,11 +333,11 @@
   transition: transform 0.1s;
 }
 
-.photo-modal__zoom-slider:active::-webkit-slider-thumb {
+.photo-modal__range-slider:active::-webkit-slider-thumb {
   transform: scale(1.2);
 }
 
-.photo-modal__zoom-slider::-moz-range-thumb {
+.photo-modal__range-slider::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -369,7 +382,7 @@
   letter-spacing: -0.01em;
 }
 
-/* Descriptions */
+/* Description */
 .photo-modal__description {
   font-size: 0.8125rem;
   color: #777;
@@ -377,7 +390,7 @@
   margin: 0;
 }
 
-/* Section divider */
+/* Section divider label */
 .photo-modal__section-label {
   font-size: 0.6875rem;
   font-weight: 600;
@@ -387,25 +400,25 @@
   margin: 0 0 10px;
 }
 
-/* ── Dimension inputs ────────────────────────────────────────────────────── */
+/* ── Dimension sliders ───────────────────────────────────────────────────── */
 
 .photo-modal__dimensions-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 
-.photo-modal__dimensions-row {
-  display: flex;
-  gap: 12px;
-}
-
-/* Each dimension gets its own card */
 .photo-modal__field {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
+}
+
+/* Row: label on left, current value badge on right */
+.photo-modal__field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .photo-modal__field-label {
@@ -416,51 +429,70 @@
   color: #999;
 }
 
-.photo-modal__field-input-wrap {
-  display: flex;
-  align-items: center;
-  border: 1.5px solid #e4e4e4;
-  border-radius: 8px;
-  background: #fff;
-  overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s;
+/* Current value pill */
+.photo-modal__dim-badge {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #1a6b4a;
+  background: rgba(26, 107, 74, 0.08);
+  padding: 2px 9px;
+  border-radius: 20px;
+  letter-spacing: 0.02em;
+  transition: background 0.1s;
 }
 
-.photo-modal__field-input-wrap:focus-within {
-  border-color: #1a6b4a;
-  box-shadow: 0 0 0 3px rgba(26, 107, 74, 0.1);
-}
-
-.photo-modal__dim-input {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
-  border: none;
-  outline: none;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #111;
-  background: transparent;
-  -moz-appearance: textfield;
-  text-align: center;
-}
-
-.photo-modal__dim-input::-webkit-inner-spin-button,
-.photo-modal__dim-input::-webkit-outer-spin-button {
+/* Dimension range slider (green, full width) */
+.photo-modal__dim-slider {
+  width: 100%;
   -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    #1a6b4a var(--slider-pct, 50%),
+    #e0e0e0 var(--slider-pct, 50%)
+  );
+  outline: none;
+  cursor: pointer;
 }
 
-.photo-modal__dim-unit {
-  padding: 0 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
+.photo-modal__dim-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  border: 2px solid #1a6b4a;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.photo-modal__dim-slider:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 2px 10px rgba(26, 107, 74, 0.35);
+}
+
+.photo-modal__dim-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  border: 2px solid #1a6b4a;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+}
+
+/* Min / max hint row */
+.photo-modal__slider-range-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.625rem;
   color: #bbb;
   letter-spacing: 0.03em;
-  border-left: 1.5px solid #f0f0f0;
-  background: #fafafa;
-  height: 100%;
-  display: flex;
-  align-items: center;
+  margin-top: -2px;
 }
 
 .photo-modal__max-warning {
@@ -489,6 +521,46 @@
   color: #1a6b4a;
   font-weight: 600;
 }
+
+/* ── Debug panel ─────────────────────────────────────────────────────────── */
+
+.photo-modal__debug {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f3f3f3;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 8px;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  color: #888;
+}
+
+.photo-modal__debug-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #aaa;
+}
+
+.photo-modal__debug-item {
+  flex: 1;
+  color: #999;
+}
+
+/* Status dot */
+.photo-modal__debug-status {
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+
+.pwm-debug-idle    { color: #aaa; }
+.pwm-debug-loading { color: #e8a040; }
+.pwm-debug-ready   { color: #1a6b4a; }
+.pwm-debug-error   { color: #e05252; }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 
@@ -605,5 +677,9 @@
 
   .photo-modal__footer {
     padding: 12px 16px;
+  }
+
+  .photo-modal__range-slider {
+    max-width: none;
   }
 }
