@@ -1,17 +1,15 @@
-# Wallpaper Configurator — Shopify Integration Notes
+# If it's a product-related 
+Usually we can use schema settings to make things dynamic, so the store owner can manage everything easily without touching any code.
 
-## Where frame configuration would live in production
+But for product-specific things, it’s better to use metafields or even metaobjects — especially for things like spacing, width, height, and other custom values.
 
-| Config type | Recommended location | Why |
-|---|---|---|
-| Frame sizes (min/max cm, step) | **Theme Settings** (`config/settings_schema.json`) | Merchant-editable via Customizer; no code deploy needed |
-| Padding limits & defaults | **Theme Settings** | Same reason — safe for non-technical merchants |
-| Per-product overrides (e.g. max size for a small print) | **Product Metafields** (`custom.frame_config`, type: `json`) | Scoped to a single product without touching theme code |
-| Pricing rules (price-per-cm²) | **Shopify Scripts** or a **custom App** with a Storefront API proxy | Requires server-side calculation; theme alone can't securely enforce pricing |
-| imgBB API key | **Theme Settings** (password field) or a private App environment variable | Never hard-code credentials in committed JS |
+For price-related changes, it’s different. We may need to build a custom app or extension using Shopify Functions, which is possible but will require some proper research and documentation work.
 
-## How it integrates with native Shopify product configuration
+Right now, it’s connected to the Add to Cart button. If it needs to be product-specific, we can control it using metafields and enable/disable it per product.
 
-1. The modal intercepts the native `product-form.js` `Add to Cart` submit via a capture-phase listener, so it works with any Dawn-based theme with zero template changes.
-2. On confirm, `Width (cm)`, `Height (cm)`, `Padding (px)`, and `Cropped Image` are written as **line-item properties** — they appear on the order, are forwarded to fulfilment, and can be read by Liquid in `cart-items`.
-3. For a full production build: add a `product.wallpaper` template that renders the section with `photo-wallpaper-modal` assets included, and gate the modal with a product tag check (`product.tags contains 'wallpaper'`) so it only loads for relevant products.
+If the product limit is below 50, we could also handle it using schema settings by selecting all the products 50 or below and applying a conditional check to show it on the site.
+
+
+
+
+# If it's a section related, then we can just create a section, and everything can be made dynamic using the input settings.
