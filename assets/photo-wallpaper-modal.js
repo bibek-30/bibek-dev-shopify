@@ -2,14 +2,15 @@
  * Photo Wallpaper Configurator Modal
  * - Opens fullscreen on "Add to Cart" click
  * - Image shown full (contain) initially
- * - Width/height sliders reveal a fixed crop selection box (centered)
- * - Dragging / zoom pans & scales the IMAGE under the fixed crop box
- * - Debounced "final render" fires ~600ms after user stops interacting
- * - Stale request cancellation via AbortController (latest state wins)
- * - Debug panel shows render count + current load status
- * - On confirm: Canvas API crops the exact selected region, uploads it to
- *   imgBB (permanent URL) or falls back to a compressed base64 thumbnail,
- *   and stores it as a single "Cropped Image" line-item property.
+ * - Width / Height / Padding sliders control the frame preview
+ * - Padding slider adjusts the white matte between photo and frame border
+ * - Dragging / zoom pans & scales the photo inside the frame
+ * - Instant visual update on every slider move or drag
+ * - Debounced "final render" fires ~600ms after user stops interacting;
+ *   the Debug panel then shows the simulated render URL
+ * - Stale request cancellation via AbortController (latest state always wins)
+ * - On confirm: Canvas crops the visible region, uploads to imgBB (or
+ *   falls back to base64 thumbnail), stored as a line-item property.
  */
 
 (function () {
@@ -21,27 +22,25 @@
   var MODAL_ID = 'photo-wallpaper-modal';
   var MAX_ZOOM = 4;
   var MIN_ZOOM = 1;
-  var modal = null;
+  var modal    = null;
 
   var state = {
     imgNatW: 0, imgNatH: 0,
     imgDispW: 0, imgDispH: 0,
     zoom: 1, panX: 0, panY: 0,
-    cropX: 0, cropY: 0,
-    cropW: 0, cropH: 0,
+    cropX: 0, cropY: 0, cropW: 0, cropH: 0,
     widthCm: 300, heightCm: 240,
+    paddingPx: 0,               // white matte between photo and frame border
     isDragging: false,
     dragStartX: 0, dragStartY: 0,
     dragStartPanX: 0, dragStartPanY: 0,
     variantId: null, price: '', productTitle: '',
   };
 
-  // ── Debug / debounce state ────────────────────────────────────────────────
-  var debugRenderCount = 0;
+  // ── Debug / debounce state ─────────────────────────────────────────────────
+  var debugRenderCount    = 0;
   var renderDebounceTimer = null;
   var currentAbortController = null;
-
-  // ─── helpers ───────────────────────────────────────────────────────────────
 
   function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
 
@@ -59,7 +58,25 @@
     }
   }
 
-  // ─── Debounced "final render" ──────────────────────────────────────────────
+  // Builds and shows the simulated render URL in the debug panel.
+  // Called once the 600ms debounce fires (user has stopped interacting).
+  function updateDebugUrl() {
+    if (!modal) return;
+    var urlRow  = modal.querySelector('#pwm-debug-url');
+    var urlText = modal.querySelector('#pwm-debug-url-text');
+    if (!urlRow || !urlText) return;
+
+    urlText.textContent =
+      'https://image-service.com/render' +
+      '?width='  + (state.widthCm  || 0) +
+      '&height=' + (state.heightCm || 0) +
+      '&pad='    + (state.paddingPx || 0) +
+      '&zoom='   + state.zoom.toFixed(2);
+
+    urlRow.hidden = false;
+  }
+
+  // ─── Debounced "final render" (600 ms) ────────────────────────────────────
 
   function scheduleRender() {
     setDebugStatus('loading');
@@ -67,14 +84,38 @@
     renderDebounceTimer = setTimeout(function () {
       debugRenderCount++;
       setDebugStatus('ready');
+      updateDebugUrl();   // ← shows the simulated URL once user stops moving
     }, 600);
   }
 
-  // ─── build modal HTML ──────────────────────────────────────────────────────
+  // ─── Frame matte (padding) ────────────────────────────────────────────────
+
+  // The matte is an inset white box-shadow on #pwm-crop-frame, which sits
+  // inside the thick frame border of #pwm-crop-box.
+  function applyFrameMatte() {
+    if (!modal) return;
+    var matteEl   = modal.querySelector('#pwm-crop-frame');
+    var badgeEl   = modal.querySelector('#pwm-pad-val');
+    var sliderEl  = modal.querySelector('#pwm-pad-slider');
+    var p = state.paddingPx;
+
+    if (matteEl) {
+      matteEl.style.boxShadow = p > 0
+        ? 'inset 0 0 0 ' + p + 'px rgb(250, 248, 244)'
+        : '';
+    }
+    if (badgeEl) badgeEl.textContent = p + ' px';
+    if (sliderEl) {
+      var pct = (p / parseFloat(sliderEl.max)) * 100;
+      sliderEl.style.setProperty('--slider-pct', pct.toFixed(1) + '%');
+    }
+  }
+
+  // ─── Build modal HTML ──────────────────────────────────────────────────────
 
   function buildModal() {
     var el = document.createElement('div');
-    el.id = MODAL_ID;
+    el.id  = MODAL_ID;
     el.className = 'photo-modal';
     el.setAttribute('hidden', '');
     el.setAttribute('role', 'dialog');
@@ -85,7 +126,7 @@
       '<div class="photo-modal__overlay" aria-hidden="true"></div>',
       '<div class="photo-modal__container">',
 
-        // ── Header ──────────────────────────────────────────────────────────
+        // ── Header ────────────────────────────────────────────────────────
         '<div class="photo-modal__header">',
           '<span class="photo-modal__step">',
             '<span class="photo-modal__step-dots">',
@@ -98,29 +139,30 @@
           '<button class="photo-modal__close" type="button" aria-label="Close">&times;</button>',
         '</div>',
 
-        // ── Body ────────────────────────────────────────────────────────────
+        // ── Body ──────────────────────────────────────────────────────────
         '<div class="photo-modal__body">',
 
-          // Image side
+          // ── Left: image + zoom bar ───────────────────────────────────────
           '<div class="photo-modal__image-side">',
             '<div class="photo-modal__image-viewport" id="pwm-viewport">',
 
+              // Photo layer (moves & scales)
               '<div class="photo-modal__image-wrapper" id="pwm-image-wrapper">',
                 '<img class="photo-modal__image" id="pwm-image" src="" alt=""',
                 '  crossorigin="anonymous" draggable="false">',
               '</div>',
 
+              // Frame overlay (dim surround + picture-frame box + matte)
               '<div class="photo-modal__crop-overlay" id="pwm-crop-overlay" hidden aria-hidden="true">',
                 '<div class="photo-modal__dim" id="pwm-dim-top"></div>',
                 '<div class="photo-modal__dim" id="pwm-dim-bottom"></div>',
                 '<div class="photo-modal__dim" id="pwm-dim-left"></div>',
                 '<div class="photo-modal__dim" id="pwm-dim-right"></div>',
+                // The thick border of this div IS the picture frame.
+                // #pwm-crop-frame (child) provides the white matte via inset box-shadow.
                 '<div class="photo-modal__crop-box" id="pwm-crop-box">',
-                  '<span class="photo-modal__crop-corner photo-modal__crop-corner--tl"></span>',
-                  '<span class="photo-modal__crop-corner photo-modal__crop-corner--tr"></span>',
-                  '<span class="photo-modal__crop-corner photo-modal__crop-corner--bl"></span>',
-                  '<span class="photo-modal__crop-corner photo-modal__crop-corner--br"></span>',
-                  '<span class="photo-modal__crop-hint">&#x2725; Drag to reposition</span>',
+                  '<div class="photo-modal__crop-frame" id="pwm-crop-frame"></div>',
+                  '<span class="photo-modal__crop-hint">&#x2725; Drag to position photo</span>',
                 '</div>',
               '</div>',
 
@@ -138,19 +180,21 @@
             '</div>',
           '</div>',
 
-          // Info panel
+          // ── Right: info panel ────────────────────────────────────────────
           '<div class="photo-modal__info-side">',
             '<h2 class="photo-modal__product-title" id="pwm-title"></h2>',
 
             '<p class="photo-modal__description">',
-              'We produce your wallpaper to measure. Drag the sliders to set your',
-              ' wall dimensions and we\'ll prepare your custom print.',
+              'We produce your wallpaper to measure. Use the sliders below to set',
+              ' your wall size and matte padding, then drag to position the photo',
+              ' inside the frame.',
             '</p>',
 
-            // Dimension sliders
+            // Dimension + Padding sliders
             '<div class="photo-modal__dimensions-group">',
-              '<p class="photo-modal__section-label">Wall dimensions</p>',
+              '<p class="photo-modal__section-label">Frame configuration</p>',
 
+              // Width
               '<div class="photo-modal__field">',
                 '<div class="photo-modal__field-label-row">',
                   '<span class="photo-modal__field-label">Width</span>',
@@ -163,6 +207,7 @@
                 '</div>',
               '</div>',
 
+              // Height
               '<div class="photo-modal__field">',
                 '<div class="photo-modal__field-label-row">',
                   '<span class="photo-modal__field-label">Height</span>',
@@ -175,6 +220,20 @@
                 '</div>',
               '</div>',
 
+              // Padding (matte)
+              '<div class="photo-modal__field">',
+                '<div class="photo-modal__field-label-row">',
+                  '<span class="photo-modal__field-label">Padding</span>',
+                  '<span class="photo-modal__dim-badge photo-modal__dim-badge--pad" id="pwm-pad-val">0 px</span>',
+                '</div>',
+                '<input type="range" id="pwm-pad-slider"',
+                '  class="photo-modal__dim-slider photo-modal__dim-slider--pad"',
+                '  min="0" max="100" step="2" value="0">',
+                '<div class="photo-modal__slider-range-row">',
+                  '<span>0 px</span><span>100 px</span>',
+                '</div>',
+              '</div>',
+
               '<p class="photo-modal__max-warning" id="pwm-max-warning" hidden>',
                 '\u26a0 Maximum dimension reached.',
               '</p>',
@@ -184,18 +243,25 @@
               '<strong>Tip:</strong> Add 10 cm to both width and height to account for overlap and margins.',
             '</div>',
 
-            // Debug panel
+            // Debug panel — shows render count, status, and simulated URL
             '<div class="photo-modal__debug" id="pwm-debug">',
-              '<span class="photo-modal__debug-label">Debug</span>',
-              '<span class="photo-modal__debug-item" id="pwm-debug-count">Renders: 0</span>',
-              '<span class="photo-modal__debug-status pwm-debug-idle" id="pwm-debug-status">● idle</span>',
+              '<div class="photo-modal__debug-row">',
+                '<span class="photo-modal__debug-label">Debug</span>',
+                '<span class="photo-modal__debug-item" id="pwm-debug-count">Renders: 0</span>',
+                '<span class="photo-modal__debug-status pwm-debug-idle" id="pwm-debug-status">● idle</span>',
+              '</div>',
+              // URL row — hidden until first debounce fires
+              '<div class="photo-modal__debug-url" id="pwm-debug-url" hidden>',
+                '<span class="photo-modal__debug-url-arrow">&#x21B3;</span>',
+                '<code class="photo-modal__debug-url-text" id="pwm-debug-url-text"></code>',
+              '</div>',
             '</div>',
 
           '</div>',
 
         '</div>',
 
-        // ── Footer ──────────────────────────────────────────────────────────
+        // ── Footer ────────────────────────────────────────────────────────
         '<div class="photo-modal__footer">',
           '<div class="photo-modal__price-block">',
             '<span class="photo-modal__price" id="pwm-price"></span>',
@@ -228,17 +294,17 @@
     return el;
   }
 
-  // ─── image sizing (contain logic) ─────────────────────────────────────────
+  // ─── Image sizing (contain logic) ─────────────────────────────────────────
 
   function computeImageDisplaySize() {
-    var vp = modal.querySelector('#pwm-viewport');
+    var vp  = modal.querySelector('#pwm-viewport');
     var img = modal.querySelector('#pwm-image');
     if (!state.imgNatW || !state.imgNatH || !vp) return;
 
     var vw = vp.clientWidth;
     var vh = vp.clientHeight;
     var imgAspect = state.imgNatW / state.imgNatH;
-    var vpAspect = vw / vh;
+    var vpAspect  = vw / vh;
 
     if (imgAspect > vpAspect) {
       state.imgDispW = vw;
@@ -275,15 +341,11 @@
     state.panY = clamp(state.panY, -maxY, maxY);
   }
 
-  // ─── crop box (always centered; image moves underneath) ───────────────────
+  // ─── Frame box (centered; image moves underneath) ──────────────────────────
 
   function updateCropBox() {
     var overlay = modal.querySelector('#pwm-crop-overlay');
-
-    if (!state.widthCm || !state.heightCm) {
-      overlay.hidden = true;
-      return;
-    }
+    if (!state.widthCm || !state.heightCm) { overlay.hidden = true; return; }
 
     overlay.hidden = false;
 
@@ -294,10 +356,7 @@
 
     var cw = vw * 0.8;
     var ch = cw / aspect;
-    if (ch > vh * 0.8) {
-      ch = vh * 0.8;
-      cw = ch * aspect;
-    }
+    if (ch > vh * 0.8) { ch = vh * 0.8; cw = ch * aspect; }
 
     state.cropW = cw;
     state.cropH = ch;
@@ -322,7 +381,7 @@
       'left:' + cx + 'px;top:' + cy + 'px;width:' + cw + 'px;height:' + ch + 'px';
   }
 
-  // ─── canvas crop ──────────────────────────────────────────────────────────
+  // ─── Canvas crop ──────────────────────────────────────────────────────────
 
   function cropToBlob() {
     var img = modal.querySelector('#pwm-image');
@@ -366,24 +425,21 @@
     });
   }
 
-  // ─── stale-request-safe upload ────────────────────────────────────────────
+  // ─── Stale-request-safe upload ────────────────────────────────────────────
 
   async function uploadToImgBB(blob, signal) {
-    var formData = new FormData();
-    formData.append('image', blob, 'wallpaper-crop.jpg');
+    var fd = new FormData();
+    fd.append('image', blob, 'wallpaper-crop.jpg');
     var res = await fetch('https://api.imgbb.com/1/upload?key=' + IMGBB_API_KEY, {
-      method: 'POST',
-      body: formData,
-      signal: signal,
+      method: 'POST', body: fd, signal: signal,
     });
     if (!res.ok) throw new Error('imgBB upload failed (' + res.status + ')');
-    var data = await res.json();
-    return data.data.display_url;
+    return (await res.json()).data.display_url;
   }
 
   function blobToThumbnailDataUrl(blob) {
     return new Promise(function (resolve) {
-      var tempImg = new Image();
+      var tempImg   = new Image();
       var objectUrl = URL.createObjectURL(blob);
       tempImg.onload = function () {
         var maxPx  = 300;
@@ -391,8 +447,7 @@
         var tw = tempImg.width > tempImg.height ? maxPx : Math.round(maxPx * aspect);
         var th = tempImg.height >= tempImg.width ? maxPx : Math.round(maxPx / aspect);
         var canvas = document.createElement('canvas');
-        canvas.width  = tw;
-        canvas.height = th;
+        canvas.width = tw; canvas.height = th;
         canvas.getContext('2d').drawImage(tempImg, 0, 0, tw, th);
         URL.revokeObjectURL(objectUrl);
         canvas.toBlob(function (small) {
@@ -408,13 +463,11 @@
   async function prepareCroppedImageValue(signal) {
     var blob = await cropToBlob();
     if (signal && signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    if (IMGBB_API_KEY) {
-      return await uploadToImgBB(blob, signal);
-    }
+    if (IMGBB_API_KEY) return await uploadToImgBB(blob, signal);
     return await blobToThumbnailDataUrl(blob);
   }
 
-  // ─── add to cart ──────────────────────────────────────────────────────────
+  // ─── Add to cart ──────────────────────────────────────────────────────────
 
   async function addToCart() {
     var widthCm   = state.widthCm;
@@ -426,7 +479,7 @@
       return;
     }
 
-    // Cancel any previous in-flight request
+    // Cancel any previous in-flight request (stale-request cancellation)
     if (currentAbortController) currentAbortController.abort();
     currentAbortController = new AbortController();
     var signal = currentAbortController.signal;
@@ -438,7 +491,7 @@
 
     try {
       var croppedImageValue = await prepareCroppedImageValue(signal);
-      if (signal.aborted) return; // stale — silently drop
+      if (signal.aborted) return;
 
       var response = await fetch('/cart/add.js', {
         method: 'POST',
@@ -449,6 +502,7 @@
           properties: {
             'Width (cm)':    widthCm,
             'Height (cm)':   heightCm,
+            'Padding (px)':  state.paddingPx,
             'Cropped Image': croppedImageValue,
           },
         }),
@@ -469,14 +523,11 @@
       document.dispatchEvent(
         new CustomEvent('cart:updated', { detail: { cart: cartRes }, bubbles: true })
       );
-
       var cartDrawer = document.querySelector('cart-drawer');
-      if (cartDrawer && typeof cartDrawer.open === 'function') {
-        cartDrawer.open();
-      }
+      if (cartDrawer && typeof cartDrawer.open === 'function') cartDrawer.open();
 
     } catch (e) {
-      if (e.name === 'AbortError') return; // stale request — do nothing
+      if (e.name === 'AbortError') return;
       alert(e.message || 'An error occurred. Please try again.');
       setDebugStatus('error');
     } finally {
@@ -485,18 +536,17 @@
     }
   }
 
-  // ─── open / close ─────────────────────────────────────────────────────────
+  // ─── Open / close ──────────────────────────────────────────────────────────
 
   function openModal(opts) {
     if (!modal) modal = buildModal();
 
-    // Reset debug counters per-session
     debugRenderCount = 0;
 
     Object.assign(state, {
       zoom: 1, panX: 0, panY: 0,
       cropX: 0, cropY: 0, cropW: 0, cropH: 0,
-      widthCm: 300, heightCm: 240,
+      widthCm: 300, heightCm: 240, paddingPx: 0,
       imgNatW: 0, imgNatH: 0, imgDispW: 0, imgDispH: 0,
       variantId: opts.variantId,
       price: opts.price || '',
@@ -506,15 +556,18 @@
     modal.querySelector('#pwm-title').textContent = state.productTitle;
     modal.querySelector('#pwm-price').textContent = state.price;
 
-    // Reset sliders and badges
-    modal.querySelector('#pwm-width').value          = 300;
-    modal.querySelector('#pwm-height').value         = 240;
-    modal.querySelector('#pwm-zoom-slider').value    = 1;
+    modal.querySelector('#pwm-width').value         = 300;
+    modal.querySelector('#pwm-height').value        = 240;
+    modal.querySelector('#pwm-pad-slider').value    = 0;
+    modal.querySelector('#pwm-zoom-slider').value   = 1;
     modal.querySelector('#pwm-width-val').textContent  = '300 cm';
     modal.querySelector('#pwm-height-val').textContent = '240 cm';
+    modal.querySelector('#pwm-pad-val').textContent    = '0 px';
     modal.querySelector('#pwm-crop-overlay').hidden    = true;
+    modal.querySelector('#pwm-debug-url').hidden       = true;
 
     setDebugStatus('idle');
+    applyFrameMatte();
 
     var img = modal.querySelector('#pwm-image');
     img.removeAttribute('style');
@@ -528,7 +581,7 @@
         computeImageDisplaySize();
         updateCropBox();
         applyTransform();
-        scheduleRender(); // initial load counts as first render
+        scheduleRender();
       };
       img.src = opts.imageUrl || '';
     });
@@ -541,14 +594,14 @@
 
   function closeModal() {
     if (!modal) return;
-    if (renderDebounceTimer)   clearTimeout(renderDebounceTimer);
+    if (renderDebounceTimer)    clearTimeout(renderDebounceTimer);
     if (currentAbortController) currentAbortController.abort();
     modal.setAttribute('hidden', '');
     document.body.style.overflow = '';
     detachModalEvents();
   }
 
-  // ─── events ───────────────────────────────────────────────────────────────
+  // ─── Events ────────────────────────────────────────────────────────────────
 
   var _h = {};
 
@@ -559,7 +612,7 @@
     var overlay      = modal.querySelector('.photo-modal__overlay');
     var closeBtn     = modal.querySelector('.photo-modal__close');
     var zoomSlider   = modal.querySelector('#pwm-zoom-slider');
-
+    var padSlider    = modal.querySelector('#pwm-pad-slider');
     var widthSlider  = modal.querySelector('#pwm-width');
     var heightSlider = modal.querySelector('#pwm-height');
     var nextBtn      = modal.querySelector('#pwm-next-btn');
@@ -568,17 +621,22 @@
     _h.closeBtn     = function () { closeModal(); };
     _h.esc = function (e) { if (e.key === 'Escape') closeModal(); };
 
-    // Sync gradient fill on range slider using --slider-pct CSS var
-    function syncSliderFill(slider, min, max) {
+    function syncFill(slider, min, max) {
       var pct = ((parseFloat(slider.value) - min) / (max - min)) * 100;
       slider.style.setProperty('--slider-pct', pct.toFixed(1) + '%');
     }
 
     _h.zoom = function (e) {
       state.zoom = parseFloat(e.target.value);
-      syncSliderFill(zoomSlider, MIN_ZOOM, MAX_ZOOM);
+      syncFill(zoomSlider, MIN_ZOOM, MAX_ZOOM);
       clampPan();
       applyTransform();
+      scheduleRender();
+    };
+
+    _h.pad = function (e) {
+      state.paddingPx = parseInt(e.target.value, 10) || 0;
+      applyFrameMatte();   // instant visual update
       scheduleRender();
     };
 
@@ -586,7 +644,7 @@
       e.preventDefault();
       state.zoom = clamp(state.zoom + (e.deltaY > 0 ? -0.15 : 0.15), MIN_ZOOM, MAX_ZOOM);
       zoomSlider.value = state.zoom;
-      syncSliderFill(zoomSlider, MIN_ZOOM, MAX_ZOOM);
+      syncFill(zoomSlider, MIN_ZOOM, MAX_ZOOM);
       clampPan();
       applyTransform();
       scheduleRender();
@@ -601,8 +659,8 @@
       if (wVal) wVal.textContent = state.widthCm  + ' cm';
       if (hVal) hVal.textContent = state.heightCm + ' cm';
 
-      syncSliderFill(widthSlider,  50, 1000);
-      syncSliderFill(heightSlider, 50, 1000);
+      syncFill(widthSlider,  50, 1000);
+      syncFill(heightSlider, 50, 1000);
 
       updateCropBox();
       clampPan();
@@ -611,8 +669,7 @@
 
     _h.next = function () { addToCart(); };
 
-    // ── Drag: pans the IMAGE (crop box stays fixed at center) ──
-
+    // Drag: pans the photo (frame stays fixed at center)
     _h.mousedown = function (e) {
       if (e.button !== 0) return;
       state.isDragging    = true;
@@ -638,15 +695,12 @@
       vp.classList.remove('dragging');
     };
 
-    // Touch
     _h.touchstart = function (e) {
       if (e.touches.length !== 1) return;
       var t = e.touches[0];
-      state.isDragging    = true;
-      state.dragStartX    = t.clientX;
-      state.dragStartY    = t.clientY;
-      state.dragStartPanX = state.panX;
-      state.dragStartPanY = state.panY;
+      state.isDragging = true;
+      state.dragStartX = t.clientX; state.dragStartY = t.clientY;
+      state.dragStartPanX = state.panX; state.dragStartPanY = state.panY;
     };
 
     _h.touchmove = function (e) {
@@ -666,6 +720,7 @@
     closeBtn.addEventListener('click',     _h.closeBtn);
     document.addEventListener('keydown',   _h.esc);
     zoomSlider.addEventListener('input',   _h.zoom);
+    padSlider.addEventListener('input',    _h.pad);
     widthSlider.addEventListener('input',  _h.dimChange);
     heightSlider.addEventListener('input', _h.dimChange);
     nextBtn.addEventListener('click',      _h.next);
@@ -677,10 +732,11 @@
     vp.addEventListener('touchend',        _h.touchend);
     vp.addEventListener('wheel',           _h.wheel, { passive: false });
 
-    // Sync initial slider fills
-    syncSliderFill(zoomSlider,   MIN_ZOOM, MAX_ZOOM);
-    syncSliderFill(widthSlider,  50, 1000);
-    syncSliderFill(heightSlider, 50, 1000);
+    // Sync initial gradient fills
+    syncFill(zoomSlider,   MIN_ZOOM, MAX_ZOOM);
+    syncFill(widthSlider,  50, 1000);
+    syncFill(heightSlider, 50, 1000);
+    syncFill(padSlider,    0,  100);
   }
 
   function detachModalEvents() {
@@ -689,7 +745,7 @@
     var overlay      = modal.querySelector('.photo-modal__overlay');
     var closeBtn     = modal.querySelector('.photo-modal__close');
     var zoomSlider   = modal.querySelector('#pwm-zoom-slider');
-
+    var padSlider    = modal.querySelector('#pwm-pad-slider');
     var widthSlider  = modal.querySelector('#pwm-width');
     var heightSlider = modal.querySelector('#pwm-height');
     var nextBtn      = modal.querySelector('#pwm-next-btn');
@@ -698,6 +754,7 @@
     closeBtn.removeEventListener('click',     _h.closeBtn);
     document.removeEventListener('keydown',   _h.esc);
     zoomSlider.removeEventListener('input',   _h.zoom);
+    padSlider.removeEventListener('input',    _h.pad);
     widthSlider.removeEventListener('input',  _h.dimChange);
     heightSlider.removeEventListener('input', _h.dimChange);
     nextBtn.removeEventListener('click',      _h.next);
@@ -711,7 +768,7 @@
     _h = {};
   }
 
-  // ─── hook Add to Cart button ──────────────────────────────────────────────
+  // ─── Hook Add to Cart button ───────────────────────────────────────────────
 
   function hookButtons() {
     document.addEventListener('click', function (e) {
@@ -752,7 +809,7 @@
       );
       var price = priceEl ? priceEl.textContent.trim() : '';
 
-      openModal({ variantId: variantId, imageUrl: imageUrl, productTitle: productTitle, price: price });
+      openModal({ variantId, imageUrl, productTitle, price });
     }, true); // capture — fires before Dawn's product-form.js
   }
 
