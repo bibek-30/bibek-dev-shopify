@@ -136,7 +136,7 @@
 .photo-modal__image-wrapper {
   flex-shrink: 0;
   /* Picture frame border */
-  border: 16px solid #2c1a0a;
+  /* border: 16px solid #2c1a0a; */
   /* Layered shadows for frame depth */
   box-shadow:
     0 0 0 1.5px rgba(180, 140, 55, 0.55),
