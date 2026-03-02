@@ -1,16 +1,12 @@
 /**
  * Photo Wallpaper Configurator Modal
  * - Opens fullscreen on "Add to Cart" click
- * - Image shown full (contain) initially
- * - Width / Height / Padding sliders control the frame preview
- * - Padding slider adjusts the white matte between photo and frame border
- * - Dragging / zoom pans & scales the photo inside the frame
- * - Instant visual update on every slider move or drag
- * - Debounced "final render" fires ~600ms after user stops interacting;
- *   the Debug panel then shows the simulated render URL
- * - Stale request cancellation via AbortController (latest state always wins)
- * - On confirm: Canvas crops the visible region, uploads to imgBB (or
- *   falls back to base64 thumbnail), stored as a line-item property.
+ * - Width / Height sliders directly resize the image preview
+ * - Padding slider adds real white matte space between photo and frame border
+ * - No zoom, no drag — simple static preview
+ * - Debounced "final render" fires ~600ms after user stops interacting
+ * - On confirm: uploads to imgBB (or falls back to base64 thumbnail),
+ *   stored as a line-item property.
  */
 
 (function () {
@@ -20,20 +16,13 @@
   var IMGBB_API_KEY = 'bf4f91c9d10fb4be1e9c1f88d07a91d0';
 
   var MODAL_ID = 'photo-wallpaper-modal';
-  var MAX_ZOOM = 4;
-  var MIN_ZOOM = 1;
   var modal    = null;
 
   var state = {
     imgNatW: 0, imgNatH: 0,
     imgDispW: 0, imgDispH: 0,
-    zoom: 1, panX: 0, panY: 0,
-    cropX: 0, cropY: 0, cropW: 0, cropH: 0,
     widthCm: 300, heightCm: 240,
-    paddingPx: 0,               // white matte between photo and frame border
-    isDragging: false,
-    dragStartX: 0, dragStartY: 0,
-    dragStartPanX: 0, dragStartPanY: 0,
+    paddingPx: 0,
     variantId: null, price: '', productTitle: '',
   };
 
@@ -41,8 +30,6 @@
   var debugRenderCount    = 0;
   var renderDebounceTimer = null;
   var currentAbortController = null;
-
-  function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
 
   // ─── Debug panel ──────────────────────────────────────────────────────────
 
@@ -58,8 +45,6 @@
     }
   }
 
-  // Builds and shows the simulated render URL in the debug panel.
-  // Called once the 600ms debounce fires (user has stopped interacting).
   function updateDebugUrl() {
     if (!modal) return;
     var urlRow  = modal.querySelector('#pwm-debug-url');
@@ -70,8 +55,7 @@
       'https://image-service.com/render' +
       '?width='  + (state.widthCm  || 0) +
       '&height=' + (state.heightCm || 0) +
-      '&pad='    + (state.paddingPx || 0) +
-      '&zoom='   + state.zoom.toFixed(2);
+      '&pad='    + (state.paddingPx || 0);
 
     urlRow.hidden = false;
   }
@@ -84,25 +68,23 @@
     renderDebounceTimer = setTimeout(function () {
       debugRenderCount++;
       setDebugStatus('ready');
-      updateDebugUrl();   // ← shows the simulated URL once user stops moving
+      updateDebugUrl();
     }, 600);
   }
 
   // ─── Frame matte (padding) ────────────────────────────────────────────────
 
-  // The matte is an inset white box-shadow on #pwm-crop-frame, which sits
-  // inside the thick frame border of #pwm-crop-box.
+  // Padding is real CSS padding on #pwm-image-wrapper, creating visible space
+  // between the photo and the frame border. Background fills the matte area.
   function applyFrameMatte() {
     if (!modal) return;
-    var matteEl   = modal.querySelector('#pwm-crop-frame');
-    var badgeEl   = modal.querySelector('#pwm-pad-val');
-    var sliderEl  = modal.querySelector('#pwm-pad-slider');
+    var wrapper  = modal.querySelector('#pwm-image-wrapper');
+    var badgeEl  = modal.querySelector('#pwm-pad-val');
+    var sliderEl = modal.querySelector('#pwm-pad-slider');
     var p = state.paddingPx;
 
-    if (matteEl) {
-      matteEl.style.boxShadow = p > 0
-        ? 'inset 0 0 0 ' + p + 'px rgb(250, 248, 244)'
-        : '';
+    if (wrapper) {
+      wrapper.style.padding = p + 'px';
     }
     if (badgeEl) badgeEl.textContent = p + ' px';
     if (sliderEl) {
@@ -142,41 +124,16 @@
         // ── Body ──────────────────────────────────────────────────────────
         '<div class="photo-modal__body">',
 
-          // ── Left: image + zoom bar ───────────────────────────────────────
+          // ── Left: image ───────────────────────────────────────────────
           '<div class="photo-modal__image-side">',
             '<div class="photo-modal__image-viewport" id="pwm-viewport">',
 
-              // Photo layer (moves & scales)
-              '<div class="photo-modal__image-wrapper" id="pwm-image-wrapper">',
+              // Frame wrapper: border = frame, padding = matte, contains image
+              '<div class="photo-modal__image-wrapper" id="pwm-image-wrapper" hidden>',
                 '<img class="photo-modal__image" id="pwm-image" src="" alt=""',
                 '  crossorigin="anonymous" draggable="false">',
               '</div>',
 
-              // Frame overlay (dim surround + picture-frame box + matte)
-              '<div class="photo-modal__crop-overlay" id="pwm-crop-overlay" hidden aria-hidden="true">',
-                '<div class="photo-modal__dim" id="pwm-dim-top"></div>',
-                '<div class="photo-modal__dim" id="pwm-dim-bottom"></div>',
-                '<div class="photo-modal__dim" id="pwm-dim-left"></div>',
-                '<div class="photo-modal__dim" id="pwm-dim-right"></div>',
-                // The thick border of this div IS the picture frame.
-                // #pwm-crop-frame (child) provides the white matte via inset box-shadow.
-                '<div class="photo-modal__crop-box" id="pwm-crop-box">',
-                  '<div class="photo-modal__crop-frame" id="pwm-crop-frame"></div>',
-                  '<span class="photo-modal__crop-hint">&#x2725; Drag to position photo</span>',
-                '</div>',
-              '</div>',
-
-            '</div>',
-
-            // Zoom bar
-            '<div class="photo-modal__controls-bar">',
-              '<div class="photo-modal__zoom-bar">',
-                '<label for="pwm-zoom-slider">Zoom</label>',
-                '<span class="photo-modal__zoom-icon" aria-hidden="true">\u2212</span>',
-                '<input type="range" id="pwm-zoom-slider" class="photo-modal__range-slider"',
-                '  min="' + MIN_ZOOM + '" max="' + MAX_ZOOM + '" step="0.05" value="1">',
-                '<span class="photo-modal__zoom-icon" aria-hidden="true">+</span>',
-              '</div>',
             '</div>',
           '</div>',
 
@@ -186,8 +143,7 @@
 
             '<p class="photo-modal__description">',
               'We produce your wallpaper to measure. Use the sliders below to set',
-              ' your wall size and matte padding, then drag to position the photo',
-              ' inside the frame.',
+              ' your wall size and matte padding.',
             '</p>',
 
             // Dimension + Padding sliders
@@ -243,14 +199,13 @@
               '<strong>Tip:</strong> Add 10 cm to both width and height to account for overlap and margins.',
             '</div>',
 
-            // Debug panel — shows render count, status, and simulated URL
+            // Debug panel
             '<div class="photo-modal__debug" id="pwm-debug">',
               '<div class="photo-modal__debug-row">',
                 '<span class="photo-modal__debug-label">Debug</span>',
                 '<span class="photo-modal__debug-item" id="pwm-debug-count">Renders: 0</span>',
                 '<span class="photo-modal__debug-status pwm-debug-idle" id="pwm-debug-status">● idle</span>',
               '</div>',
-              // URL row — hidden until first debounce fires
               '<div class="photo-modal__debug-url" id="pwm-debug-url" hidden>',
                 '<span class="photo-modal__debug-url-arrow">&#x21B3;</span>',
                 '<code class="photo-modal__debug-url-text" id="pwm-debug-url-text"></code>',
@@ -294,133 +249,61 @@
     return el;
   }
 
-  // ─── Image sizing (contain logic) ─────────────────────────────────────────
+  // ─── Image sizing ──────────────────────────────────────────────────────────
 
+  // Sizes the image to exactly the pixel values from the sliders.
+  // If the values exceed the viewport, both are scaled down proportionally.
   function computeImageDisplaySize() {
     var vp  = modal.querySelector('#pwm-viewport');
     var img = modal.querySelector('#pwm-image');
     if (!state.imgNatW || !state.imgNatH || !vp) return;
 
-    var vw = vp.clientWidth;
-    var vh = vp.clientHeight;
-    var imgAspect = state.imgNatW / state.imgNatH;
-    var vpAspect  = vw / vh;
+    var frameBorder = 16; // matches CSS border-width
+    var pad = state.paddingPx;
+    var margin = 48;
+    var maxW = Math.max(vp.clientWidth  - margin - (frameBorder + pad) * 2, 80);
+    var maxH = Math.max(vp.clientHeight - margin - (frameBorder + pad) * 2, 80);
 
-    if (imgAspect > vpAspect) {
-      state.imgDispW = vw;
-      state.imgDispH = vw / imgAspect;
-    } else {
-      state.imgDispH = vh;
-      state.imgDispW = vh * imgAspect;
+    // Use literal pixel values from sliders
+    var w = state.widthCm;
+    var h = state.heightCm;
+
+    // Scale down proportionally only if they exceed the viewport
+    if (w > maxW || h > maxH) {
+      var scale = Math.min(maxW / w, maxH / h);
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
     }
 
-    img.style.width  = state.imgDispW + 'px';
-    img.style.height = state.imgDispH + 'px';
-  }
+    state.imgDispW = w;
+    state.imgDispH = h;
 
-  function applyTransform() {
+    img.style.width  = w + 'px';
+    img.style.height = h + 'px';
+    img.style.display = 'block';
+
     var wrapper = modal.querySelector('#pwm-image-wrapper');
-    if (!wrapper) return;
-    wrapper.style.transform =
-      'translate(' + state.panX + 'px, ' + state.panY + 'px) scale(' + state.zoom + ')';
+    if (wrapper) wrapper.removeAttribute('hidden');
   }
 
-  function clampPan() {
-    if (!state.imgDispW) return;
-    var maxX, maxY;
-    if (state.cropW && state.cropH) {
-      maxX = Math.max(0, (state.imgDispW * state.zoom - state.cropW) / 2);
-      maxY = Math.max(0, (state.imgDispH * state.zoom - state.cropH) / 2);
-    } else {
-      var vp = modal.querySelector('#pwm-viewport');
-      if (!vp) return;
-      maxX = Math.max(0, (state.imgDispW * state.zoom - vp.clientWidth)  / 2);
-      maxY = Math.max(0, (state.imgDispH * state.zoom - vp.clientHeight) / 2);
-    }
-    state.panX = clamp(state.panX, -maxX, maxX);
-    state.panY = clamp(state.panY, -maxY, maxY);
-  }
-
-  // ─── Frame box (centered; image moves underneath) ──────────────────────────
-
-  function updateCropBox() {
-    var overlay = modal.querySelector('#pwm-crop-overlay');
-    if (!state.widthCm || !state.heightCm) { overlay.hidden = true; return; }
-
-    overlay.hidden = false;
-
-    var vp = modal.querySelector('#pwm-viewport');
-    var vw = vp.clientWidth;
-    var vh = vp.clientHeight;
-    var aspect = state.widthCm / state.heightCm;
-
-    var cw = vw * 0.8;
-    var ch = cw / aspect;
-    if (ch > vh * 0.8) { ch = vh * 0.8; cw = ch * aspect; }
-
-    state.cropW = cw;
-    state.cropH = ch;
-    state.cropX = (vw - cw) / 2;
-    state.cropY = (vh - ch) / 2;
-
-    renderCropOverlay();
-  }
-
-  function renderCropOverlay() {
-    var cx = state.cropX, cy = state.cropY, cw = state.cropW, ch = state.cropH;
-
-    modal.querySelector('#pwm-dim-top').style.cssText =
-      'top:0;left:0;right:0;height:' + cy + 'px';
-    modal.querySelector('#pwm-dim-bottom').style.cssText =
-      'top:' + (cy + ch) + 'px;left:0;right:0;bottom:0';
-    modal.querySelector('#pwm-dim-left').style.cssText =
-      'top:' + cy + 'px;left:0;width:' + cx + 'px;height:' + ch + 'px';
-    modal.querySelector('#pwm-dim-right').style.cssText =
-      'top:' + cy + 'px;left:' + (cx + cw) + 'px;right:0;height:' + ch + 'px';
-    modal.querySelector('#pwm-crop-box').style.cssText =
-      'left:' + cx + 'px;top:' + cy + 'px;width:' + cw + 'px;height:' + ch + 'px';
-  }
-
-  // ─── Canvas crop ──────────────────────────────────────────────────────────
+  // ─── Canvas export ────────────────────────────────────────────────────────
 
   function cropToBlob() {
     var img = modal.querySelector('#pwm-image');
-    var vp  = modal.querySelector('#pwm-viewport');
-    var vw  = vp.clientWidth;
-    var vh  = vp.clientHeight;
-
-    var scaledW = state.imgDispW * state.zoom;
-    var scaledH = state.imgDispH * state.zoom;
-    var imgLeft = (vw - scaledW) / 2 + state.panX;
-    var imgTop  = (vh - scaledH) / 2 + state.panY;
-
-    var cropInDispX = (state.cropX - imgLeft) / state.zoom;
-    var cropInDispY = (state.cropY - imgTop)  / state.zoom;
-    var cropInDispW = state.cropW / state.zoom;
-    var cropInDispH = state.cropH / state.zoom;
-
-    var scaleX = state.imgNatW / state.imgDispW;
-    var scaleY = state.imgNatH / state.imgDispH;
-    var srcX = clamp(Math.round(cropInDispX * scaleX), 0, state.imgNatW);
-    var srcY = clamp(Math.round(cropInDispY * scaleY), 0, state.imgNatH);
-    var srcW = clamp(Math.round(cropInDispW * scaleX), 1, state.imgNatW - srcX);
-    var srcH = clamp(Math.round(cropInDispH * scaleY), 1, state.imgNatH - srcY);
-
-    var maxPx  = 1200;
-    var aspect = srcW / srcH;
-    var outW   = Math.round(Math.min(srcW, maxPx));
-    var outH   = Math.round(outW / aspect);
-    if (outH > maxPx) { outH = maxPx; outW = Math.round(outH * aspect); }
+    var wallAspect = (state.widthCm || state.imgNatW) / (state.heightCm || state.imgNatH);
+    var outW = Math.min(state.imgNatW, 1200);
+    var outH = Math.round(outW / wallAspect);
+    if (outH > 1200) { outH = 1200; outW = Math.round(outH * wallAspect); }
 
     var canvas = document.createElement('canvas');
     canvas.width  = outW;
     canvas.height = outH;
-    canvas.getContext('2d').drawImage(img, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+    canvas.getContext('2d').drawImage(img, 0, 0, outW, outH);
 
     return new Promise(function (resolve, reject) {
       canvas.toBlob(function (blob) {
         if (blob) resolve(blob);
-        else reject(new Error('Could not generate image crop.'));
+        else reject(new Error('Could not generate image.'));
       }, 'image/jpeg', 0.88);
     });
   }
@@ -479,7 +362,6 @@
       return;
     }
 
-    // Cancel any previous in-flight request (stale-request cancellation)
     if (currentAbortController) currentAbortController.abort();
     currentAbortController = new AbortController();
     var signal = currentAbortController.signal;
@@ -544,8 +426,6 @@
     debugRenderCount = 0;
 
     Object.assign(state, {
-      zoom: 1, panX: 0, panY: 0,
-      cropX: 0, cropY: 0, cropW: 0, cropH: 0,
       widthCm: 300, heightCm: 240, paddingPx: 0,
       imgNatW: 0, imgNatH: 0, imgDispW: 0, imgDispH: 0,
       variantId: opts.variantId,
@@ -559,28 +439,25 @@
     modal.querySelector('#pwm-width').value         = 300;
     modal.querySelector('#pwm-height').value        = 240;
     modal.querySelector('#pwm-pad-slider').value    = 0;
-    modal.querySelector('#pwm-zoom-slider').value   = 1;
     modal.querySelector('#pwm-width-val').textContent  = '300 cm';
     modal.querySelector('#pwm-height-val').textContent = '240 cm';
     modal.querySelector('#pwm-pad-val').textContent    = '0 px';
-    modal.querySelector('#pwm-crop-overlay').hidden    = true;
     modal.querySelector('#pwm-debug-url').hidden       = true;
+    modal.querySelector('#pwm-image-wrapper').setAttribute('hidden', '');
 
     setDebugStatus('idle');
     applyFrameMatte();
 
     var img = modal.querySelector('#pwm-image');
     img.removeAttribute('style');
-    applyTransform();
-
     img.src = '';
+
     requestAnimationFrame(function () {
       img.onload = function () {
         state.imgNatW = img.naturalWidth;
         state.imgNatH = img.naturalHeight;
         computeImageDisplaySize();
-        updateCropBox();
-        applyTransform();
+        applyFrameMatte();
         scheduleRender();
       };
       img.src = opts.imageUrl || '';
@@ -608,10 +485,8 @@
   function attachModalEvents() {
     detachModalEvents();
 
-    var vp           = modal.querySelector('#pwm-viewport');
     var overlay      = modal.querySelector('.photo-modal__overlay');
     var closeBtn     = modal.querySelector('.photo-modal__close');
-    var zoomSlider   = modal.querySelector('#pwm-zoom-slider');
     var padSlider    = modal.querySelector('#pwm-pad-slider');
     var widthSlider  = modal.querySelector('#pwm-width');
     var heightSlider = modal.querySelector('#pwm-height');
@@ -626,27 +501,10 @@
       slider.style.setProperty('--slider-pct', pct.toFixed(1) + '%');
     }
 
-    _h.zoom = function (e) {
-      state.zoom = parseFloat(e.target.value);
-      syncFill(zoomSlider, MIN_ZOOM, MAX_ZOOM);
-      clampPan();
-      applyTransform();
-      scheduleRender();
-    };
-
     _h.pad = function (e) {
       state.paddingPx = parseInt(e.target.value, 10) || 0;
-      applyFrameMatte();   // instant visual update
-      scheduleRender();
-    };
-
-    _h.wheel = function (e) {
-      e.preventDefault();
-      state.zoom = clamp(state.zoom + (e.deltaY > 0 ? -0.15 : 0.15), MIN_ZOOM, MAX_ZOOM);
-      zoomSlider.value = state.zoom;
-      syncFill(zoomSlider, MIN_ZOOM, MAX_ZOOM);
-      clampPan();
-      applyTransform();
+      applyFrameMatte();
+      computeImageDisplaySize(); // recompute image size to account for new padding space
       scheduleRender();
     };
 
@@ -662,78 +520,21 @@
       syncFill(widthSlider,  50, 1000);
       syncFill(heightSlider, 50, 1000);
 
-      updateCropBox();
-      clampPan();
+      computeImageDisplaySize();
       scheduleRender();
     };
 
     _h.next = function () { addToCart(); };
 
-    // Drag: pans the photo (frame stays fixed at center)
-    _h.mousedown = function (e) {
-      if (e.button !== 0) return;
-      state.isDragging    = true;
-      state.dragStartX    = e.clientX;
-      state.dragStartY    = e.clientY;
-      state.dragStartPanX = state.panX;
-      state.dragStartPanY = state.panY;
-      vp.classList.add('dragging');
-      e.preventDefault();
-    };
-
-    _h.mousemove = function (e) {
-      if (!state.isDragging) return;
-      state.panX = state.dragStartPanX + (e.clientX - state.dragStartX);
-      state.panY = state.dragStartPanY + (e.clientY - state.dragStartY);
-      clampPan();
-      applyTransform();
-      scheduleRender();
-    };
-
-    _h.mouseup = function () {
-      state.isDragging = false;
-      vp.classList.remove('dragging');
-    };
-
-    _h.touchstart = function (e) {
-      if (e.touches.length !== 1) return;
-      var t = e.touches[0];
-      state.isDragging = true;
-      state.dragStartX = t.clientX; state.dragStartY = t.clientY;
-      state.dragStartPanX = state.panX; state.dragStartPanY = state.panY;
-    };
-
-    _h.touchmove = function (e) {
-      if (!state.isDragging || e.touches.length !== 1) return;
-      var t = e.touches[0];
-      state.panX = state.dragStartPanX + (t.clientX - state.dragStartX);
-      state.panY = state.dragStartPanY + (t.clientY - state.dragStartY);
-      clampPan();
-      applyTransform();
-      scheduleRender();
-      e.preventDefault();
-    };
-
-    _h.touchend = function () { state.isDragging = false; };
-
     overlay.addEventListener('click',      _h.closeOverlay);
     closeBtn.addEventListener('click',     _h.closeBtn);
     document.addEventListener('keydown',   _h.esc);
-    zoomSlider.addEventListener('input',   _h.zoom);
     padSlider.addEventListener('input',    _h.pad);
     widthSlider.addEventListener('input',  _h.dimChange);
     heightSlider.addEventListener('input', _h.dimChange);
     nextBtn.addEventListener('click',      _h.next);
-    vp.addEventListener('mousedown',       _h.mousedown);
-    document.addEventListener('mousemove', _h.mousemove);
-    document.addEventListener('mouseup',   _h.mouseup);
-    vp.addEventListener('touchstart',      _h.touchstart, { passive: true });
-    vp.addEventListener('touchmove',       _h.touchmove,  { passive: false });
-    vp.addEventListener('touchend',        _h.touchend);
-    vp.addEventListener('wheel',           _h.wheel, { passive: false });
 
     // Sync initial gradient fills
-    syncFill(zoomSlider,   MIN_ZOOM, MAX_ZOOM);
     syncFill(widthSlider,  50, 1000);
     syncFill(heightSlider, 50, 1000);
     syncFill(padSlider,    0,  100);
@@ -741,10 +542,8 @@
 
   function detachModalEvents() {
     if (!_h.closeOverlay) return;
-    var vp           = modal.querySelector('#pwm-viewport');
     var overlay      = modal.querySelector('.photo-modal__overlay');
     var closeBtn     = modal.querySelector('.photo-modal__close');
-    var zoomSlider   = modal.querySelector('#pwm-zoom-slider');
     var padSlider    = modal.querySelector('#pwm-pad-slider');
     var widthSlider  = modal.querySelector('#pwm-width');
     var heightSlider = modal.querySelector('#pwm-height');
@@ -753,18 +552,10 @@
     overlay.removeEventListener('click',      _h.closeOverlay);
     closeBtn.removeEventListener('click',     _h.closeBtn);
     document.removeEventListener('keydown',   _h.esc);
-    zoomSlider.removeEventListener('input',   _h.zoom);
     padSlider.removeEventListener('input',    _h.pad);
     widthSlider.removeEventListener('input',  _h.dimChange);
     heightSlider.removeEventListener('input', _h.dimChange);
     nextBtn.removeEventListener('click',      _h.next);
-    vp.removeEventListener('mousedown',       _h.mousedown);
-    document.removeEventListener('mousemove', _h.mousemove);
-    document.removeEventListener('mouseup',   _h.mouseup);
-    vp.removeEventListener('touchstart',      _h.touchstart);
-    vp.removeEventListener('touchmove',       _h.touchmove);
-    vp.removeEventListener('touchend',        _h.touchend);
-    vp.removeEventListener('wheel',           _h.wheel);
     _h = {};
   }
 
