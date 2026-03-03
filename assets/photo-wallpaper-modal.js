@@ -157,9 +157,9 @@
                   '<span class="photo-modal__dim-badge" id="pwm-width-val">300 cm</span>',
                 '</div>',
                 '<input type="range" id="pwm-width" class="photo-modal__dim-slider"',
-                '  min="50" max="1000" step="10" value="300">',
+                '  min="300" max="1000" step="10" value="300">',
                 '<div class="photo-modal__slider-range-row">',
-                  '<span>50 cm</span><span>1000 cm</span>',
+                  '<span>300 cm</span><span>1000 cm</span>',
                 '</div>',
               '</div>',
 
@@ -170,9 +170,9 @@
                   '<span class="photo-modal__dim-badge" id="pwm-height-val">240 cm</span>',
                 '</div>',
                 '<input type="range" id="pwm-height" class="photo-modal__dim-slider"',
-                '  min="50" max="1000" step="10" value="240">',
+                '  min="30" max="1000" step="10" value="240">',
                 '<div class="photo-modal__slider-range-row">',
-                  '<span>50 cm</span><span>1000 cm</span>',
+                  '<span>300 cm</span><span>1000 cm</span>',
                 '</div>',
               '</div>',
 
